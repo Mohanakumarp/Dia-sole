@@ -2,10 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/sensor_reading.dart';
-import '../models/sync_config.dart';
 import 'ble_types.dart';
 import 'sensor_reading_repository.dart';
-import 'sync_scheduler_service.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class TemperatureAsymmetryAlert {
@@ -27,6 +25,9 @@ class SensorDataProvider extends ChangeNotifier {
 
   final SensorReadingRepository _repository = SensorReadingRepository();
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+
+  /// Real-time stream subscription for /live node
+  StreamSubscription<DatabaseEvent>? _liveSubscription;
 
   final Map<DeviceSide, Map<SensorZone, SensorReading?>> _latestReadings = {
     DeviceSide.left: {
@@ -59,144 +60,151 @@ class SensorDataProvider extends ChangeNotifier {
 
   DateTime? lastSyncTime;
 
-  Timer? _fetchTimer;
-
   SensorDataProvider() {
-    _startFirebasePolling();
-    SyncSchedulerService.currentConfig.addListener(_onIntervalChanged);
+    final String initTimestamp = DateTime.now().toIso8601String();
+    print('');
+    print('╔══════════════════════════════════════════════════════════════╗');
+    print('║  [DiaSole] SensorDataProvider initialized                   ║');
+    print('║  Timestamp: $initTimestamp');
+    print('║  Firebase RTDB: /live (real-time stream)                     ║');
+    print('╚══════════════════════════════════════════════════════════════╝');
+    print('');
+    _startLiveStream();
   }
 
-  void _onIntervalChanged() {
-    if (kDebugMode)
-      print(' Fetch interval changed by user. Restarting polling.');
-    _startFirebasePolling();
+  /// Start a real-time listener on the Firebase /live node.
+  /// Uses onValue to receive every data change instantly.
+  void _startLiveStream() {
+    // Cancel any existing subscription before starting a new one
+    _liveSubscription?.cancel();
+
+    final String startTimestamp = DateTime.now().toIso8601String();
+    print('┌──────────────────────────────────────────────────────────────');
+    print('│ [DiaSole] FIREBASE LIVE STREAM');
+    print('│ Timestamp : $startTimestamp');
+    print('│ Node      : /live');
+    print('│ Method    : onValue (real-time listener)');
+    print('└──────────────────────────────────────────────────────────────');
+    print('');
+
+    _liveSubscription = _dbRef.child('live').onValue.listen(
+      (DatabaseEvent event) {
+        final DateTime now = DateTime.now();
+        final String timestamp = now.toIso8601String();
+
+        if (event.snapshot.exists && event.snapshot.value != null) {
+          final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+          print('');
+          print('┌──────────────────────────────────────────────────────────────');
+          print('│ [DiaSole] LIVE DATA RECEIVED');
+          print('│ Timestamp : $timestamp');
+          print('│ Node      : /live');
+          print('├──────────────────────────────────────────────────────────────');
+          print('│ Status    : ✅ Data received');
+          _logFirebaseData(data, timestamp);
+          _processCloudData(data);
+          lastSyncTime = now;
+          notifyListeners();
+          print('└──────────────────────────────────────────────────────────────');
+          print('');
+        } else {
+          print('');
+          print('┌──────────────────────────────────────────────────────────────');
+          print('│ [DiaSole] LIVE DATA EVENT');
+          print('│ Timestamp : $timestamp');
+          print('│ Status    : ⚠️  No data at /live (snapshot empty)');
+          print('└──────────────────────────────────────────────────────────────');
+          print('');
+        }
+      },
+      onError: (error) {
+        final String timestamp = DateTime.now().toIso8601String();
+        print('');
+        print('┌──────────────────────────────────────────────────────────────');
+        print('│ [DiaSole] LIVE STREAM ERROR');
+        print('│ Timestamp : $timestamp');
+        print('│ Error     : $error');
+        print('└──────────────────────────────────────────────────────────────');
+        print('');
+      },
+    );
   }
 
-  void _startFirebasePolling() {
-    _fetchTimer?.cancel();
-
-    // Check every minute if the system time matches the saved schedule
-    _fetchTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      _checkScheduleAndFetch();
-    });
-
-    // Optional: Also fetch once immediately on launch for UX
-    _fetchFromFirebase();
-  }
-
-  void _checkScheduleAndFetch() {
-    final config = SyncSchedulerService.currentConfig.value;
-    final now = DateTime.now();
-
-    // Match Hour and Minute
-    if (now.hour == config.time.hour && now.minute == config.time.minute) {
-      if (config.type == SyncType.weekly) {
-        final days = [
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-          'Sunday',
-        ];
-        final currentDay = days[now.weekday - 1];
-        if (config.day != currentDay) return;
-      } else if (config.type == SyncType.monthly) {
-        if (now.day != config.date) return;
+  /// Logs all fetched Firebase data in a structured, readable format to the terminal.
+  void _logFirebaseData(Map<String, dynamic> data, String timestamp) {
+    print('│');
+    print('│ ┌────────────────┬────────────┬──────────────┐');
+    print('│ │ Sensor         │ Value      │ Type         │');
+    print('│ ├────────────────┼────────────┼──────────────┤');
+    int totalReadings = 0;
+    for (int i = 1; i <= 6; i++) {
+      if (data.containsKey('p$i')) {
+        final pVal = data['p$i'];
+        final p = pVal is num ? pVal.toDouble() : double.tryParse(pVal.toString()) ?? 0.0;
+        print('│ │ p$i             │ ${p.toStringAsFixed(2).padRight(10)} │ Pressure     │');
+        totalReadings++;
       }
-
-      // Match found
-      _fetchFromFirebase();
     }
-  }
-
-  Future<void> _fetchFromFirebase() async {
-    try {
-      final String timestamp = DateTime.now().toIso8601String();
-      print(
-        '>>> [DiaSole] [$timestamp] Attempting to fetch from Firebase RTDB at node /sensors...',
-      );
-      final snapshot = await _dbRef.child('sensors').get();
-      print(
-        '>>> [DiaSole] [$timestamp] Snapshot exists: ${snapshot.exists}, Value: ${snapshot.value}',
-      );
-      if (snapshot.exists && snapshot.value != null) {
-        final data = Map<String, dynamic>.from(snapshot.value as Map);
-        _processCloudData(data);
+    for (int i = 1; i <= 5; i++) {
+      if (data.containsKey('t$i')) {
+        final tVal = data['t$i'];
+        final t = tVal is num ? tVal.toDouble() : double.tryParse(tVal.toString()) ?? 0.0;
+        print('│ │ t$i             │ ${t.toStringAsFixed(2).padRight(10)} │ Temperature  │');
+        totalReadings++;
       }
-    } catch (e, stack) {
-      final String timestamp = DateTime.now().toIso8601String();
-      print(
-        '>>> [DiaSole] [$timestamp] Error fetching from Firebase: $e \\n$stack',
-      );
     }
+    print('│ └────────────────┴────────────┴──────────────┘');
+    print('│');
+    print('│ 📊 Total sensor readings fetched: $totalReadings');
+    print('│ 🕐 Fetch timestamp: $timestamp');
   }
 
   void _processCloudData(Map<String, dynamic> data) {
     bool hasUpdates = false;
     final now = DateTime.now();
 
-    for (final sideStr in data.keys) {
-      final sideEnum = sideStr.toLowerCase() == 'left'
-          ? DeviceSide.left
-          : DeviceSide.right;
-      if (data[sideStr] is! Map) continue;
-      final sideData = Map<String, dynamic>.from(data[sideStr] as Map);
+    // Map p1-p6 and t1-t5 to Right foot zones
+    final zones = [
+      SensorZone.heel,
+      SensorZone.ball,
+      SensorZone.toe,
+      SensorZone.oppositeHeel,
+      SensorZone.oppositeBall,
+      SensorZone.oppositeToe,
+    ];
 
-      for (final zoneStr in sideData.keys) {
-        final zoneData = sideData[zoneStr] is Map
-            ? sideData[zoneStr] as Map
-            : null;
-        if (zoneData == null) continue;
+    for (int i = 0; i < 6; i++) {
+      final pKey = 'p${i + 1}';
+      final tKey = 't${i + 1}';
 
-        SensorZone? zoneEnum;
-        if (zoneStr.toLowerCase() == 'heel') zoneEnum = SensorZone.heel;
-        if (zoneStr.toLowerCase() == 'ball') zoneEnum = SensorZone.ball;
-        if (zoneStr.toLowerCase() == 'toe') zoneEnum = SensorZone.toe;
-        if (zoneStr.toLowerCase() == 'oppositeheel')
-          zoneEnum = SensorZone.oppositeHeel;
-        if (zoneStr.toLowerCase() == 'oppositeball')
-          zoneEnum = SensorZone.oppositeBall;
-        if (zoneStr.toLowerCase() == 'oppositetoe')
-          zoneEnum = SensorZone.oppositeToe;
+      if (data.containsKey(pKey) || data.containsKey(tKey)) {
+        final pVal = data[pKey];
+        final tVal = data[tKey];
 
-        if (zoneEnum != null) {
-          final pressureVal = zoneData['pressure'];
-          final tempVal = zoneData['temperature'];
+        final p = pVal is num ? pVal.toDouble() : double.tryParse(pVal.toString()) ?? 0.0;
+        final t = tVal is num ? tVal.toDouble() : double.tryParse(tVal.toString()) ?? 0.0;
 
-          final p = pressureVal is num
-              ? pressureVal.toDouble()
-              : double.tryParse(pressureVal.toString()) ?? 0.0;
-          final t = tempVal is num
-              ? tempVal.toDouble()
-              : double.tryParse(tempVal.toString()) ?? 0.0;
+        final reading = SensorReading(
+          side: DeviceSide.right, // Map to right foot as the canonical foot in UI
+          zone: zones[i],
+          pressure: p,
+          temperature: t,
+          timestamp: now,
+        );
 
-          final reading = SensorReading(
-            side: sideEnum,
-            zone: zoneEnum,
-            pressure: p,
-            temperature: t,
-            timestamp: now,
-          );
-
-          _latestReadings[sideEnum]![zoneEnum] = reading;
-          _repository.insertReading(reading);
-          hasUpdates = true;
-        }
+        _latestReadings[DeviceSide.right]![zones[i]] = reading;
+        _repository.insertReading(reading);
+        hasUpdates = true;
       }
-      _lastUpdateTime[sideEnum] = now;
     }
-
-    if (hasUpdates) notifyListeners();
-  }
-
-  bool _isDataStale(DeviceSide side) {
-    return false; // Display latest known data across polling intervals
+    
+    if (hasUpdates) {
+      _lastUpdateTime[DeviceSide.right] = now;
+      notifyListeners();
+    }
   }
 
   List<double>? getPressures(DeviceSide side) {
-    if (_isDataStale(side)) return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     return [
       _latestReadings[side]?[SensorZone.heel]?.pressure ?? 0.0,
       _latestReadings[side]?[SensorZone.ball]?.pressure ?? 0.0,
@@ -208,7 +216,6 @@ class SensorDataProvider extends ChangeNotifier {
   }
 
   List<double>? getTemperatures(DeviceSide side) {
-    if (_isDataStale(side)) return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     return [
       _latestReadings[side]?[SensorZone.heel]?.temperature ?? 0.0,
       _latestReadings[side]?[SensorZone.ball]?.temperature ?? 0.0,
@@ -267,8 +274,10 @@ class SensorDataProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _fetchTimer?.cancel();
-    SyncSchedulerService.currentConfig.removeListener(_onIntervalChanged);
+    // Cancel the real-time Firebase stream subscription
+    _liveSubscription?.cancel();
+    _liveSubscription = null;
+    print('[DiaSole] Live stream subscription cancelled.');
     super.dispose();
   }
 

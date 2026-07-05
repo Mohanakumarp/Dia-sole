@@ -135,92 +135,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final rightPressures = provider.getPressures(DeviceSide.right);
         final rightTemps = provider.getTemperatures(DeviceSide.right);
 
-        // Use live values if available, fall back to defaults
+        // Use live values from Firebase, 0.0 when no data available
         final pressureLeftHeel =
             leftPressures != null && leftPressures.isNotEmpty
             ? leftPressures[0]
-            : 50.0;
+            : 0.0;
         final pressureLeftBall =
             leftPressures != null && leftPressures.length > 1
             ? leftPressures[1]
-            : 40.0;
+            : 0.0;
         final pressureLeftToe =
             leftPressures != null && leftPressures.length > 2
             ? leftPressures[2]
-            : 30.0;
+            : 0.0;
         final pressureLeftOppositeHeel =
             leftPressures != null && leftPressures.length > 3
             ? leftPressures[3]
-            : 50.0;
+            : 0.0;
         final pressureLeftOppositeBall =
             leftPressures != null && leftPressures.length > 4
             ? leftPressures[4]
-            : 40.0;
+            : 0.0;
         final pressureLeftOppositeToe =
             leftPressures != null && leftPressures.length > 5
             ? leftPressures[5]
-            : 30.0;
+            : 0.0;
 
         final pressureRightHeel =
             rightPressures != null && rightPressures.isNotEmpty
             ? rightPressures[0]
-            : 80.0;
+            : 0.0;
         final pressureRightBall =
             rightPressures != null && rightPressures.length > 1
             ? rightPressures[1]
-            : 50.0;
+            : 0.0;
         final pressureRightToe =
             rightPressures != null && rightPressures.length > 2
             ? rightPressures[2]
-            : 40.0;
+            : 0.0;
         final pressureRightOppositeHeel =
             rightPressures != null && rightPressures.length > 3
             ? rightPressures[3]
-            : 80.0;
+            : 0.0;
         final pressureRightOppositeBall =
             rightPressures != null && rightPressures.length > 4
             ? rightPressures[4]
-            : 50.0;
+            : 0.0;
         final pressureRightOppositeToe =
             rightPressures != null && rightPressures.length > 5
             ? rightPressures[5]
-            : 40.0;
+            : 0.0;
 
         final tempLeftHeel = leftTemps != null && leftTemps.isNotEmpty
             ? leftTemps[0]
-            : 36.5;
+            : 0.0;
         final tempLeftBall = leftTemps != null && leftTemps.length > 1
             ? leftTemps[1]
-            : 36.6;
+            : 0.0;
         final tempLeftToe = leftTemps != null && leftTemps.length > 2
             ? leftTemps[2]
-            : 36.6;
+            : 0.0;
         final tempLeftOppositeHeel = leftTemps != null && leftTemps.length > 3
             ? leftTemps[3]
-            : 36.5;
+            : 0.0;
         final tempLeftOppositeBall = leftTemps != null && leftTemps.length > 4
             ? leftTemps[4]
-            : 36.6;
+            : 0.0;
         final tempLeftOppositeToe = leftTemps != null && leftTemps.length > 5
             ? leftTemps[5]
-            : 36.6;
+            : 0.0;
 
         final tempRightHeel = rightTemps != null && rightTemps.isNotEmpty
             ? rightTemps[0]
-            : 37.0;
+            : 0.0;
         final tempRightBall = rightTemps != null && rightTemps.length > 1
             ? rightTemps[1]
-            : 36.9;
+            : 0.0;
         final tempRightToe = rightTemps != null && rightTemps.length > 2
             ? rightTemps[2]
-            : 36.8;
+            : 0.0;
         final tempRightOppositeHeel =
-            rightTemps != null && rightTemps.length > 3 ? rightTemps[3] : 37.0;
+            rightTemps != null && rightTemps.length > 3 ? rightTemps[3] : 0.0;
         final tempRightOppositeBall =
-            rightTemps != null && rightTemps.length > 4 ? rightTemps[4] : 36.9;
+            rightTemps != null && rightTemps.length > 4 ? rightTemps[4] : 0.0;
         final tempRightOppositeToe = rightTemps != null && rightTemps.length > 5
             ? rightTemps[5]
-            : 36.8;
+            : 0.0;
 
         return Container(
           padding: const EdgeInsets.all(24),

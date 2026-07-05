@@ -17,6 +17,18 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
+  final String startupTimestamp = DateTime.now().toIso8601String();
+  print('');
+  print('╔══════════════════════════════════════════════════════════════╗');
+  print('║                   DiaSole App Starting                      ║');
+  print('║  Timestamp  : $startupTimestamp');
+  print('║  Firebase   : ✅ Initialized                                ║');
+  print('║  Project    : diasole-smartshoe                             ║');
+  print('║  Live node  : /live   (real-time onValue stream)            ║');
+  print('║  Logs node  : /logs   (historical analytics)                ║');
+  print('╚══════════════════════════════════════════════════════════════╝');
+  print('');
+
   await SyncSchedulerService.init();
   runApp(const DiaSoleApp());
 }
